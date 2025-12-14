@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  llm_chatbot_app:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - GEMINI_API_KEY=SUA_CHAVE_AQUI_OU_USE_DOTENV
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_HEADLESS=true
+    
+    volumes:
+      - chroma_data:/app/chroma_data
+    
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
