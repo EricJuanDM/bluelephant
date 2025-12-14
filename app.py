@@ -1,48 +1,11 @@
 import streamlit as st
 import time 
-class VectorStoreManager:
-    def __init__(self):
-        print("VectorStoreManager Mock inicializado.")
-    def retrieve_context(self, query):
-        return "Contexto mock de regras internas: A política de RH é estrita e não permite perguntas pessoais."
-    def initialize_static_data(self):
-        pass
 
-class LLMAgent:
-    def __init__(self, vector_store_manager):
-        self.vector_store_manager = vector_store_manager
-        self.current_prompt = self._get_initial_prompt()
-        self.prompt_history = [{"version": 1, "prompt": self.current_prompt, "source": "initial_config", "feedback_count": 0}]
-        self.feedback_log = []
+# --- IMPORTS DAS CLASSES REAIS DO CORE (Essenciais para o funcionamento) ---
+from core.llm_agent import LLMAgent 
+from core.vector_store import VectorStoreManager 
 
-    def _get_initial_prompt(self):
-        return "Você é um assistente de IA prestativo e cordial. Use as ferramentas ViaCEP e PokéAPI."
-
-    def process_query(self, query: str):
-        time.sleep(1.5) 
-        if "cep" in query.lower():
-            return "Resposta simulada: Usei a ViaCEP. O CEP 01001-000 pertence à Praça da Sé, São Paulo."
-        elif "pokemon" in query.lower() or "pikachu" in query.lower():
-            return "Resposta simulada: Usei a PokéAPI. Pikachu é do tipo Elétrico e sua habilidade principal é Static."
-        else:
-            context = self.vector_store_manager.retrieve_context(query)
-            return f"Resposta simulada: Não usei tools. Contexto RAG: {context}. Respondi à sua pergunta sobre '{query}'."
-
-    def update_prompt_from_feedback(self, query: str, response: str, rating: str, suggestion: str):
-        time.sleep(2)
-        new_version = len(self.prompt_history) + 1
-        new_prompt = f"Versão {new_version} do Prompt: O agente foi corrigido para dar mais detalhes sobre {suggestion.split()[0]} e manter a cordialidade."
-        
-        self.current_prompt = new_prompt
-        self.prompt_history.append({
-            "version": new_version, 
-            "prompt": new_prompt, 
-            "source": f"feedback_v{new_version}", 
-            "based_on_feedback": {"rating": rating, "suggestion": suggestion}
-        })
-        return True, f"Prompt atualizado para a Versão {new_version} com base no feedback. Novo prompt: {new_prompt}"
-
-
+# ---------------------- CONFIGURAÇÃO E INICIALIZAÇÃO ----------------------
 
 st.set_page_config(page_title="Agente de IA com Feedback Inteligente", layout="wide")
 st.title("🤖 Chatbot Inteligente com Melhoria de Prompt em Tempo Real")
@@ -50,13 +13,31 @@ st.markdown("---")
 
 @st.cache_resource
 def initialize_system():
-    vs_manager = VectorStoreManager()
-    vs_manager.initialize_static_data() 
+    # 1. Inicializa o Vector Store Manager (ChromaDB)
+    try:
+        vs_manager = VectorStoreManager()
+        vs_manager.initialize_static_data() 
+    except Exception as e:
+        st.error(f"Erro ao inicializar Vector Store (ChromaDB). Verifique o volume Docker: {e}")
+        return None
     
-    agent = LLMAgent(vector_store_manager=vs_manager)
+    # 2. Inicializa o Agente e passa o Vector Store Manager
+    try:
+        agent = LLMAgent(vector_store_manager=vs_manager)
+    except Exception as e:
+        st.error(f"Erro ao inicializar LLM Agent. Chave Gemini API configurada? Erro: {e}")
+        return None
+        
     return agent
 
 agent = initialize_system()
+
+if agent is None:
+    st.warning("O sistema de IA não pôde ser iniciado. Por favor, corrija os erros acima e reinicie.")
+    st.stop()
+
+
+# ---------------------- GESTÃO DO ESTADO DA SESSÃO ----------------------
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -64,10 +45,13 @@ if "messages" not in st.session_state:
 if "last_interaction" not in st.session_state:
     st.session_state.last_interaction = None
 
+# ---------------------- DEFINIÇÃO DAS ABAS ----------------------
 
 tab_chat, tab_feedback = st.tabs(["💬 Chat do Agente", "📝 Feedback e Melhoria"])
 
-
+# ==============================================================================
+# --- ÁREA 1: CHAT DO AGENTE ---
+# ==============================================================================
 with tab_chat:
     st.header("Converse com o Agente")
     
@@ -84,18 +68,28 @@ with tab_chat:
             st.markdown(prompt)
 
         with st.spinner("🤖 O agente está processando a resposta e buscando informações..."):
-            agent_response = agent.process_query(prompt)
+            try:
+                # O ERRO OCORRIA AQUI! Se o LLMAgent não tivesse o método process_query.
+                agent_response = agent.process_query(prompt)
 
-            st.session_state.last_interaction = {
-                "query": prompt,
-                "response": agent_response
-            }
+                st.session_state.last_interaction = {
+                    "query": prompt,
+                    "response": agent_response
+                }
 
+            except Exception as e:
+                # Captura qualquer falha no processamento do LLM ou Tools
+                agent_response = f"Erro no Agente: Falha ao processar a pergunta. Detalhes: {e}"
+                st.error(agent_response)
+                
         with st.chat_message("assistant"):
             st.markdown(agent_response)
             st.session_state.messages.append({"role": "assistant", "content": agent_response})
 
 
+# ==============================================================================
+# --- ÁREA 2: FEEDBACK E MELHORIA ---
+# ==============================================================================
 with tab_feedback:
     st.header("Avalie e Sugira Melhorias para o Agente")
     
@@ -118,7 +112,7 @@ with tab_feedback:
     )
     
     feedback_suggestion = st.text_area(
-        "Sugestões de Melhoria:",
+        "Sugestões de Melhoria (Obrigatório para notas baixas):",
         placeholder="A resposta estava incompleta, o agente deveria ter usado a ViaCEP para a resposta.",
         height=100
     )
@@ -126,22 +120,31 @@ with tab_feedback:
     def handle_feedback():
         if interaction and feedback_quality and feedback_suggestion:
             with st.spinner("🧠 Processando feedback e gerando novo prompt..."):
-                success, message = agent.update_prompt_from_feedback(
-                    query=interaction['query'],
-                    response=interaction['response'],
-                    rating=feedback_quality,
-                    suggestion=feedback_suggestion
-                )
+                try:
+                    success, message = agent.update_prompt_from_feedback(
+                        query=interaction['query'],
+                        response=interaction['response'],
+                        rating=feedback_quality,
+                        suggestion=feedback_suggestion
+                    )
+                except Exception as e:
+                    st.error(f"❌ Falha no LLM Otimizador: {e}")
+                    return
             
             if success:
                 st.success(f"✅ Sucesso! {message}")
-                st.session_state.last_interaction = None
+                st.session_state.last_interaction = None 
             else:
-                st.error(f" Falha na atualização do prompt: {message}")
+                st.info(f"ℹ️ Tentativa concluída. {message}")
         else:
             st.error("Por favor, selecione a qualidade e insira uma sugestão de melhoria.")
 
-    st.button("Enviar Feedback e Atualizar Prompt", on_click=handle_feedback, type="primary", disabled=(interaction is None))
+    st.button(
+        "Enviar Feedback e Atualizar Prompt", 
+        on_click=handle_feedback, 
+        type="primary", 
+        disabled=(interaction is None)
+    )
 
     st.markdown("---")
 
@@ -155,5 +158,5 @@ with tab_feedback:
             st.markdown(f"**Versão {entry['version']}** - *Fonte: {entry['source']}*")
             st.code(entry['prompt'], language="markdown")
             if 'based_on_feedback' in entry:
-                st.caption(f"Baseado no feedback: '{entry['based_on_feedback']['suggestion']}'")
+                st.caption(f"Motivação: '{entry['based_on_feedback']['suggestion']}'")
             st.divider()

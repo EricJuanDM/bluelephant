@@ -5,39 +5,25 @@ class VectorStoreManager:
     """Gerencia a conexão e operações de RAG usando ChromaDB."""
     
     def __init__(self, collection_name="chatbot_context_data"):
-        # 1. Configuração do cliente ChromaDB
-        # Usa um diretório persistente para garantir que os dados não se percam 
-        # após a reinicialização, o que é importante para o Docker.
         self.chroma_dir = "./chroma_data"
         os.makedirs(self.chroma_dir, exist_ok=True)
         
-        # Inicializa o cliente e a coleção
         self.client = chromadb.PersistentClient(path=self.chroma_dir)
         
-        # Escolha do Embedding Model (necessário para o ChromaDB)
-        # O ChromaDB geralmente utiliza um modelo de embedding padrão ou pode ser configurado 
-        # com um modelo da HuggingFace ou OpenAI/Gemini. Usaremos o padrão do Chroma para simplificar a dockerização.
         try:
-            # Garante que a coleção existe ou a cria
             self.collection = self.client.get_or_create_collection(name=collection_name)
         except Exception as e:
-            print(f"Erro ao inicializar ChromaDB: {e}")
-            raise
+            raise Exception(f"Erro ao inicializar ChromaDB. Verifique o Docker: {e}")
             
         print(f"Vector Store '{collection_name}' inicializada com {self.collection.count()} documentos.")
 
     def add_documents(self, documents: list[str], metadatas: list[dict], ids: list[str]):
         """Adiciona documentos à Vector Store."""
-        # Se você tiver conteúdo estático (ex: regras de negócio) a ser adicionado
-        try:
-            self.collection.add(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
-            print(f"Adicionados {len(documents)} documentos à coleção.")
-        except Exception as e:
-            print(f"Erro ao adicionar documentos: {e}")
+        self.collection.add(
+            documents=documents,
+            metadatas=metadatas,
+            ids=ids
+        )
 
     def retrieve_context(self, query: str, n_results: int = 3) -> str:
         """Busca contexto relevante para uma query do usuário."""
@@ -47,9 +33,13 @@ class VectorStoreManager:
                 n_results=n_results
             )
             
-            # Formata os resultados recuperados
-            context = " ".join(results['documents'][0]) if results and results.get('documents') else "Nenhum contexto relevante encontrado na base."
-            return context
+            context_docs = results['documents'][0] if results and results.get('documents') else []
+            if not context_docs:
+                return "Nenhum contexto interno relevante encontrado na base."
+                
+            formatted_context = "\n".join([f"- {doc}" for doc in context_docs])
+            return formatted_context
+            
         except Exception as e:
             print(f"Erro ao recuperar contexto: {e}")
             return "Erro ao acessar a Vector Store."
