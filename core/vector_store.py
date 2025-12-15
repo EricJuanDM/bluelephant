@@ -13,7 +13,7 @@ class VectorStoreManager:
         try:
             self.collection = self.client.get_or_create_collection(name=collection_name)
         except Exception as e:
-            raise Exception(f"Erro ao inicializar ChromaDB. Verifique o Docker: {e}")
+            raise Exception(f"Falha na persistência da Vector Store. Verifique a configuração de armazenamento ou permissões: {e}")
             
         print(f"Vector Store '{collection_name}' inicializada com {self.collection.count()} documentos.")
 
