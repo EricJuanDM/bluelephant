@@ -13,7 +13,8 @@ class LLMAgent:
             raise ValueError("GEMINI_API_KEY não configurada. Verifique o docker-compose.yml.")
             
         self.client = genai.Client(api_key=api_key)
-        self.model = 'gemini-2.5-flash' 
+        self.model = os.environ.get("MODEL_AGENT_CORE", 'gemini-2.5-flash') # Usa fallback
+        self.model_optimizer = os.environ.get("MODEL_AGENT_OPTIMIZER", 'gemini-2.5-pro') 
         
         # 2. FERRAMENTAS (TOOLS) - DEFINA ISSO PRIMEIRO!
         # Dicionário para execução interna (Python)
@@ -125,7 +126,7 @@ class LLMAgent:
         # 3. Usa o LLM (Gemini-2.5-pro) para gerar o novo prompt
         try:
             refinement_response = self.client.models.generate_content(
-                model='gemini-2.5-pro',
+                model=self.model_optimizer, 
                 contents=[prompt_refinement_instruction]
             )
             
