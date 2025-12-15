@@ -8,11 +8,13 @@ class VectorStoreManager:
         self.chroma_dir = "./chroma_data"
         os.makedirs(self.chroma_dir, exist_ok=True)
         
+        # Cliente persistente do ChromaDB
         self.client = chromadb.PersistentClient(path=self.chroma_dir)
         
         try:
             self.collection = self.client.get_or_create_collection(name=collection_name)
         except Exception as e:
+            #  CORREÇÃO DO ACOPLAMENTO (Ponto 2): Mensagem de erro genérica
             raise Exception(f"Falha na persistência da Vector Store. Verifique a configuração de armazenamento ou permissões: {e}")
             
         print(f"Vector Store '{collection_name}' inicializada com {self.collection.count()} documentos.")
@@ -26,7 +28,7 @@ class VectorStoreManager:
         )
 
     def retrieve_context(self, query: str, n_results: int = 3) -> str:
-        """Busca contexto relevante para uma query do usuário."""
+        """Busca contexto relevante para uma query do usuário (RAG)."""
         try:
             results = self.collection.query(
                 query_texts=[query],
@@ -37,6 +39,7 @@ class VectorStoreManager:
             if not context_docs:
                 return "Nenhum contexto interno relevante encontrado na base."
                 
+            # Formata os documentos para que o LLM entenda
             formatted_context = "\n".join([f"- {doc}" for doc in context_docs])
             return formatted_context
             
@@ -45,9 +48,10 @@ class VectorStoreManager:
             return "Erro ao acessar a Vector Store."
 
     def initialize_static_data(self):
-        """Preenche a Vector Store com um pequeno conjunto de dados estáticos (Simulação)."""
+        """Preenche a Vector Store com um pequeno conjunto de dados estáticos (Simulação de documentos internos)."""
         if self.collection.count() == 0:
             print("Preenchendo a Vector Store com dados iniciais...")
+            # Documentos iniciais para teste de RAG
             self.add_documents(
                 documents=[
                     "A política de devolução da empresa é de 30 dias após a compra, somente com o recibo original.",

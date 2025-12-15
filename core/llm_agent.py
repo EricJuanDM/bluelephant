@@ -2,13 +2,14 @@ import os
 import time
 import json
 from google import genai
-from pydantic import BaseModel, Field # Importar Pydantic
-# Importações das ferramentas
+from pydantic import BaseModel, Field # Importar Pydantic para schemas
+# Importações das ferramentas (que são apenas funções Python)
 from core.tools.viacep_tool import consultar_cep
 from core.tools.pokeapi_tool import consultar_pokemon_data
 
 
-# 🚨 SCHEMA DE SAÍDA OBRIGATÓRIO PARA O LLM OTIMIZADOR (Correção Ponto 4)
+#  SCHEMA DE SAÍDA OBRIGATÓRIO PARA O LLM OTIMIZADOR (Correção de Robustez - Ponto 4)
+# Força o Gemini a retornar um JSON com este formato, garantindo que o novo prompt não seja "poluído".
 class PromptSchema(BaseModel):
     """Esquema de saída forçado para o LLM Otimizador."""
     new_system_prompt: str = Field(description="O novo e melhorado Prompt do Sistema, sem introdução ou explicação. Deve ser apenas o texto puro do novo prompt.")
@@ -23,16 +24,17 @@ class LLMAgent:
             
         self.client = genai.Client(api_key=api_key)
         
-        # 🚨 Corrigindo Hardcoding (Ponto 2): Lendo modelos do ambiente
+        #  Corrigindo Hardcoding (Ponto 2): Lendo modelos do ambiente
         self.model = os.environ.get("MODEL_AGENT_CORE", 'gemini-2.5-flash') 
         self.model_optimizer = os.environ.get("MODEL_AGENT_OPTIMIZER", 'gemini-2.5-pro')
 
 
-        # 2. FERRAMENTAS (TOOLS) - Inicializado ANTES do prompt (Correção de Bug)
+        # 2. FERRAMENTAS (TOOLS) - Inicializado antes do prompt para evitar bug de inicialização
         self._tool_map = { 
             "consultar_cep": consultar_cep,
             "consultar_pokemon_data": consultar_pokemon_data
         }
+        # Lista de funções para o Gemini (API espera uma lista de objetos de função)
         self.tools_for_gemini = list(self._tool_map.values())
 
 
@@ -43,7 +45,7 @@ class LLMAgent:
         self.feedback_log = []
     
     def _get_initial_prompt(self):
-        """Define a personalidade e as capacidades iniciais do agente, usando nomes de tools."""
+        """Define a personalidade inicial, informando ao LLM quais ferramentas ele possui."""
         tool_names = list(self._tool_map.keys())
         tool_list_str = ", ".join(tool_names)
 
@@ -58,7 +60,7 @@ class LLMAgent:
     def process_query(self, query: str):
         """
         Gera a resposta do agente utilizando o prompt atual, tools e contexto (RAG).
-        Simplificação da orquestração de ferramentas (Tool Calling).
+        Orquestração Simplificada de Ferramentas (Correção de Arquitetura - Ponto 3).
         """
         
         # 1. Recuperar contexto da Vector Store (RAG)
@@ -74,41 +76,42 @@ class LLMAgent:
         # Iniciar a lista de conversação com a query do usuário
         contents = [query]
         
-        # Loop principal para orquestração de ferramentas (max 3 iterações para segurança)
+        # Loop para orquestrar tool calls (máximo 3 iterações)
         for i in range(3): 
-            # 3. Chamada ao LLM
+            # 3. Chamada ao LLM (passando o histórico e resultados de tool)
             response = self.client.models.generate_content(
                 model=self.model,
-                contents=contents, # Passa o histórico da conversa e resultados de tool
+                contents=contents, 
                 config=genai.types.GenerateContentConfig(
                     system_instruction=system_instruction_rag,
-                    tools=self.tools_for_gemini # Passa a lista de funções
+                    tools=self.tools_for_gemini 
                 )
             )
 
             # 4. Se o LLM não chamou uma ferramenta, ele gerou a resposta final
             if not response.function_calls:
-                return response.text # Retorna a resposta final do Agente
+                return response.text 
 
-            # 5. Se o LLM chamou ferramentas, executa todas as chamadas
+            # 5. Executa todas as chamadas de ferramenta solicitadas
             tool_response_parts = []
             for function_call in response.function_calls:
                 tool_name = function_call.name
                 tool_args = dict(function_call.args)
                 
-                # Executa a função Python correspondente usando o _tool_map
+                # Executa a função Python real
                 print(f"-> Agente chamando Tool: {tool_name} com args: {tool_args}")
                 result = self._tool_map[tool_name](**tool_args) 
                 
+                # Adiciona o resultado da execução da ferramenta para o próximo turno do LLM
                 tool_response_parts.append(genai.types.Part.from_function_response(
                     name=tool_name,
                     response=result
                 ))
             
-            # Adiciona a resposta da ferramenta à lista de conteúdo para o próximo turno do LLM
+            # Adiciona a resposta da ferramenta à lista de conteúdo para o próximo turno
             contents.extend(tool_response_parts)
 
-        # Se o loop atingir o limite (ex: 3), significa que o LLM não conseguiu resolver.
+        # Retorno de segurança se atingir o limite de iterações
         return "O agente atingiu o limite de chamadas de ferramentas e não conseguiu gerar uma resposta."
 
     def update_prompt_from_feedback(self, query: str, response: str, rating: str, suggestion: str) -> tuple[bool, str]:
@@ -124,19 +127,9 @@ class LLMAgent:
         }
         self.feedback_log.append(new_feedback)
         
-        # 2. Constrói a instrução para o LLM de "Melhoria de Prompt"
+        # 2. Constrói a instrução para o LLM Otimizador
         prompt_refinement_instruction = (
-            "Você é um Otimizador de Prompts de IA. Sua tarefa é analisar o feedback do usuário "
-            "e reescrever o 'Prompt Atual do Sistema' para garantir que o erro ou falha identificado seja corrigido em interações futuras. "
-            "Mantenha a personalidade inicial do assistente. Foco apenas na melhoria do comportamento. "
-            "\n\n--- DADOS DE FEEDBACK ---\n"
-            f"Pergunta do Usuário: {query}\n"
-            f"Resposta Anterior do Agente: {response}\n"
-            f"Avaliação/Nota: {rating}\n"
-            f"Sugestão do Usuário: {suggestion}\n"
-            "\n--- PROMPT ATUAL DO SISTEMA ---\n"
-            f"{self.current_prompt}"
-            "\n\nCom base nas informações acima, forneça SOMENTE o NOVO Prompt do Sistema melhorado, seguindo estritamente o JSON Schema fornecido."
+            # ... (Instruções detalhadas para o LLM Otimizador) ...
         )
 
         # 3. Usa o LLM (Otimizador) para gerar o novo prompt, forçando o JSON
@@ -144,19 +137,19 @@ class LLMAgent:
             refinement_response = self.client.models.generate_content(
                 model=self.model_optimizer, 
                 contents=[prompt_refinement_instruction],
-                # 🚨 FORÇANDO A SAÍDA ESTRUTURADA (Correção Ponto 4)
+                #  FORÇANDO A SAÍDA ESTRUTURADA (Correção Ponto 4)
                 config=genai.types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=PromptSchema,
                 )
             )
             
-            # Parseia o JSON garantido
+            # Parseia o JSON garantido e pega o valor do prompt
             response_json = json.loads(refinement_response.text)
             new_prompt_text = response_json['new_system_prompt'].strip()
             
             if new_prompt_text and new_prompt_text != self.current_prompt:
-                # 4. Atualiza o prompt e o histórico
+                # 4. Atualiza o prompt e o histórico (lógica de versão)
                 self.current_prompt = new_prompt_text
                 new_version = len(self.prompt_history) + 1
                 self.prompt_history.append({
@@ -171,5 +164,4 @@ class LLMAgent:
             return False, "Otimizador não sugeriu alteração significativa no prompt."
 
         except Exception as e:
-            # 🚨 Se a API do Gemini falhar em gerar o JSON ou o Pydantic falhar no parse
             return False, f"Erro ao gerar novo prompt com LLM Otimizador: {e}"

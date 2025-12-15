@@ -1,31 +1,34 @@
 import streamlit as st
 import time 
+import os
+import requests 
 
-# --- IMPORTS DAS CLASSES REAIS DO CORE (Essenciais para o funcionamento) ---
+# --- IMPORTS DAS CLASSES REAIS DO CORE ---
 from core.llm_agent import LLMAgent 
 from core.vector_store import VectorStoreManager 
 
 # ---------------------- CONFIGURAÇÃO E INICIALIZAÇÃO ----------------------
 
 st.set_page_config(page_title="Agente de IA com Feedback Inteligente", layout="wide")
-st.title("🤖 Chatbot Inteligente com Melhoria de Prompt em Tempo Real")
+st.title(" Chatbot Inteligente com Melhoria de Prompt em Tempo Real")
 st.markdown("---")
 
+# Usa o cache para inicializar o sistema apenas uma vez por sessão
 @st.cache_resource
 def initialize_system():
     # 1. Inicializa o Vector Store Manager (ChromaDB)
     try:
         vs_manager = VectorStoreManager()
-        vs_manager.initialize_static_data() 
+        vs_manager.initialize_static_data() # Carrega os dados RAG
     except Exception as e:
-        st.error(f"Erro ao inicializar Vector Store (ChromaDB). Verifique o volume Docker: {e}")
+        st.error(f"Erro ao inicializar Vector Store: {e}")
         return None
     
-    # 2. Inicializa o Agente e passa o Vector Store Manager
+    # 2. Inicializa o Agente LLM
     try:
         agent = LLMAgent(vector_store_manager=vs_manager)
     except Exception as e:
-        st.error(f"Erro ao inicializar LLM Agent. Chave Gemini API configurada? Erro: {e}")
+        st.error(f"Erro ao inicializar LLM Agent: {e}")
         return None
         
     return agent
@@ -42,12 +45,13 @@ if agent is None:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+#  CORREÇÃO DE UX (Ponto 1): Armazena todas as interações não avaliadas
 if "feedback_history" not in st.session_state:
-    st.session_state.feedback_history = []
+    st.session_state.feedback_history = [] 
 
 # ---------------------- DEFINIÇÃO DAS ABAS ----------------------
 
-tab_chat, tab_feedback = st.tabs(["💬 Chat do Agente", "📝 Feedback e Melhoria"])
+tab_chat, tab_feedback = st.tabs([" Chat do Agente", " Feedback e Melhoria"])
 
 # ==============================================================================
 # --- ÁREA 1: CHAT DO AGENTE ---
@@ -69,16 +73,8 @@ with tab_chat:
 
         with st.spinner(" O agente está processando a resposta e buscando informações..."):
             try:
-                # O ERRO OCORRIA AQUI! Se o LLMAgent não tivesse o método process_query.
                 agent_response = agent.process_query(prompt)
-
-                st.session_state.last_interaction = {
-                    "query": prompt,
-                    "response": agent_response
-                }
-
             except Exception as e:
-                # Captura qualquer falha no processamento do LLM ou Tools
                 agent_response = f"Erro no Agente: Falha ao processar a pergunta. Detalhes: {e}"
                 st.error(agent_response)
                 
@@ -86,6 +82,7 @@ with tab_chat:
             st.markdown(agent_response)
             st.session_state.messages.append({"role": "assistant", "content": agent_response})
             
+            #  ARMAZENAMENTO DA INTERAÇÃO PARA FEEDBACK (Ponto 1)
             st.session_state.feedback_history.append({
                 "id": len(st.session_state.feedback_history) + 1,
                 "query": prompt,
@@ -94,13 +91,14 @@ with tab_chat:
 
 
 # ==============================================================================
-# --- ÁREA 2: FEEDBACK E MELHORIA (Refatorada para UX) ---
+# --- ÁREA 2: FEEDBACK E MELHORIA (UX Aprimorada) ---
 # ==============================================================================
 with tab_feedback:
     st.header("Avalie e Sugira Melhorias para o Agente")
     
     st.subheader("1. Fornecer Feedback sobre a Interação")
 
+    # Mapeia o histórico para um dicionário amigável para o selectbox
     feedback_options = {
         f"#{item['id']} - {item['query'][:50]}..." : item 
         for item in st.session_state.feedback_history
@@ -138,10 +136,10 @@ with tab_feedback:
         height=100
     )
 
-    def handle_feedback(interaction_key, interaction_data):
+    def handle_feedback(interaction_data):
         """Função chamada ao clicar no botão de feedback."""
         if interaction_data and feedback_quality and feedback_suggestion:
-            with st.spinner("🧠 Processando feedback e gerando novo prompt..."):
+            with st.spinner(" Processando feedback e gerando novo prompt..."):
                 try:
                     success, message = agent.update_prompt_from_feedback(
                         query=interaction_data['query'],
@@ -150,13 +148,13 @@ with tab_feedback:
                         suggestion=feedback_suggestion
                     )
                 except Exception as e:
-                    st.error(f"❌ Falha no LLM Otimizador: {e}")
+                    st.error(f" Falha no LLM Otimizador: {e}")
                     return
             
             if success:
-                st.success(f"✅ Sucesso! {message}")
+                st.success(f" Sucesso! {message}")
                 
-                # 🚨 Remove a interação do histórico APÓS o sucesso para que ela não seja avaliada novamente
+                #  Remove a interação do histórico APÓS o sucesso (Ponto 1)
                 id_to_remove = interaction_data['id']
                 st.session_state.feedback_history = [
                     item for item in st.session_state.feedback_history if item['id'] != id_to_remove
@@ -170,13 +168,14 @@ with tab_feedback:
     st.button(
         "Enviar Feedback e Atualizar Prompt", 
         on_click=handle_feedback, 
-        args=(selected_key, selected_interaction),
+        args=(selected_interaction,),
         type="primary", 
         disabled=(selected_interaction is None)
     )
 
     st.markdown("---")
 
+    # 3. Visualização do Prompt Atual e Histórico
     st.subheader("2. Status e Histórico de Prompts")
     
     st.text(f"Versão Atual: {len(agent.prompt_history)}")
