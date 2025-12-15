@@ -23,13 +23,12 @@ Este projeto implementa um sistema de chatbot inteligente (LLM Agent) focado em 
     ```
 
 2.  **Configurar Variável de Ambiente:**
-    * No arquivo `docker-compose.yml`, substitua `SUA_CHAVE_AQUI_OU_USE_DOTENV` pela sua chave da Gemini API:
+    * No arquivo `.env`, substitua `SUA_CHAVE_AQUI_OU_USE_DOTENV` pela sua chave da Gemini API:
         ```yaml
         # Exemplo de ajuste no docker-compose.yml:
         environment:
           - GEMINI_API_KEY=AIzaSy...sua_chave_real
         ```
-        *(Recomendação profissional: Em projetos reais, use um arquivo `.env` para segurança.)*
 
 3.  **Construir e Iniciar os Containers:**
     Execute o comando no diretório raiz do projeto:
