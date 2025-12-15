@@ -1,0 +1,17 @@
+# .streamlit/config.toml
+
+[theme]
+
+# 1. Primary Colors (Acentos e Botões)
+primaryColor="#007bff"     # Azul elétrico para botões, links e destaques (Ex: Blue Elephant)
+
+# 2. Backgrounds (Fundo da Aplicação e Containers)
+backgroundColor="#182e59ff"  # Cor de fundo principal (preto/azul marinho muito escuro)
+secondaryBackgroundColor="#4f547fff" # Cor de fundo dos widgets e caixas (containers)
+
+# 3. Texto e Fontes
+textColor="#bbc6f3ff"        # Cor do texto padrão (branco quase puro)
+font="sans serif"          # Tipo de fonte
+
+# 4. Outras Cores (Não essenciais, mas boas para consistência)
+# base="dark"              # Define a base como modo escuro (Streamlit lida com isso automaticamente)
